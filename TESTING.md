@@ -26,6 +26,6 @@ python3 tests/run_server_tests.py --no-lp
 
 The runner uses only its isolated `build/runtime-test-server/` directory and accepts the Minecraft EULA for that test server. Never install `ashpoint-chat-test-harness-1.0.0.jar` on a live server; it performs tests and stops its test server automatically. Gradle's standalone `test` task is disabled because these tests require a running Minecraft/Fabric server. A passing Gradle build alone is not the interaction test result.
 
-GitHub repository/tag/release publication has not been performed in this session. The included workflow runs the dedicated-server suite before creating a release from a pushed version tag.
+GitHub release v1.0.0 is published at https://github.com/Neico22/ashpoint-chat/releases/tag/v1.0.0. The uploaded JAR was downloaded and its SHA-256 verified against the exact tested artifact. The included workflow runs the dedicated-server suite for version tags and preserves an existing manually published release.
 
 Exact tested and delivered production JAR SHA-256: `3b082b28e3c66828f24ee7b71ce54390a69580dd456d9a730c19b9f6e21915b5`.

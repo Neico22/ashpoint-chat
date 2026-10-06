@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"ashpoint_chat_tests","version":"1.0.0","name":"Chat runtime tests","environment":"server","entrypoints":{"main":["uk.ashpoint.chat.ChatRuntimeTests"]},"depends":{"ashpoint_chat":"*","carpet":"*"}}

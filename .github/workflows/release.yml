@@ -1,0 +1,28 @@
+name: Build, test and release
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - run: chmod +x gradlew && ./gradlew build runtimeTestJar --no-daemon
+      - run: python3 tests/run_server_tests.py
+      - run: python3 tests/run_server_tests.py --restart
+      - run: python3 tests/run_server_tests.py --no-lp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ashpoint-chat-1.0.0
+          path: build/libs/ashpoint-chat-1.0.0.jar
+      - if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" build/libs/ashpoint-chat-1.0.0.jar --verify-tag --title "AshPoint Chat $GITHUB_REF_NAME" --notes-file RELEASE.md

@@ -11,16 +11,22 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class ChatDeliveryMixin {
  @Inject(method="sendChatMessage",at=@At("HEAD"),cancellable=true)
  private void ashpoint$deliver(OutgoingChatMessage outgoing,boolean filter,ChatType.Bound type,CallbackInfo ci){
-  if(ChatMod.INSTANCE==null||ChatMod.INSTANCE.store==null||!(outgoing instanceof OutgoingChatMessage.Player player))return;
+  if(ChatMod.INSTANCE==null||ChatMod.INSTANCE.store==null)return;
+  ChatMod mod=ChatMod.INSTANCE;
+  var generated=mod.generatedChat(type);
+  PlayerChatMessage message;
+  ServerPlayer sender;
+  if(outgoing instanceof OutgoingChatMessage.Player player){message=player.message();sender=mod.server.getPlayerList().getPlayer(message.sender());}
+  else if(outgoing instanceof OutgoingChatMessage.Disguised&&generated!=null){message=generated.message();sender=generated.sender();}
+  else return;
   ServerPlayer recipient=(ServerPlayer)(Object)this;
-  if(ChatMod.INSTANCE.ignored(recipient.getUUID(),player.message().sender())){ci.cancel();return;}
-  if(recipient.getChatVisibility()!=net.minecraft.world.entity.player.ChatVisiblity.FULL||player.message().filter(filter).isFullyFiltered())return;
-  ChatMod mod=ChatMod.INSTANCE; mod.mention(recipient,player.message());
-  boolean mentioned=mod.store.pref(recipient.getUUID()).mentions&&ChatMod.containsMention(player.message().signedBody().content(),mod.name(recipient));
+  if(mod.ignored(recipient.getUUID(),generated!=null?generated.sender().getUUID():message.sender())){ci.cancel();return;}
+  if(recipient.getChatVisibility()!=net.minecraft.world.entity.player.ChatVisiblity.FULL||message.filter(filter).isFullyFiltered())return;
+  mod.mention(recipient,message);
+  boolean mentioned=mod.store.pref(recipient.getUUID()).mentions&&ChatMod.containsMention(message.signedBody().content(),mod.name(recipient));
   if(mod.store.config.formatting){
-   ServerPlayer sender=mod.server.getPlayerList().getPlayer(player.message().sender());
-   if(sender!=null){Component rendered=Component.literal(ChatMod.format(mod.store.config.publicFormat,"sender",mod.name(sender),"prefix",mod.prefix(sender),"message",player.message().decoratedContent().getString()));recipient.sendSystemMessage(mentioned?mod.personalized(recipient,player.message().withUnsignedContent(rendered)):rendered);ci.cancel();return;}
+   if(sender!=null){Component rendered=Component.literal(ChatMod.format(mod.store.config.publicFormat,"sender",mod.name(sender),"prefix",mod.prefix(sender),"message",message.decoratedContent().getString()));recipient.sendSystemMessage(mentioned?mod.personalized(recipient,message.withUnsignedContent(rendered)):rendered);ci.cancel();return;}
   }
-  if(mentioned){new OutgoingChatMessage.Player(player.message().withUnsignedContent(mod.personalized(recipient,player.message()))).sendToPlayer(recipient,filter,type);ci.cancel();}
+  if(mentioned){OutgoingChatMessage personalized=generated!=null?new OutgoingChatMessage.Disguised(mod.personalized(recipient,message)):new OutgoingChatMessage.Player(message.withUnsignedContent(mod.personalized(recipient,message)));personalized.sendToPlayer(recipient,filter,type);ci.cancel();}
  }
 }

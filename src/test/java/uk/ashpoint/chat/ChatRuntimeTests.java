@@ -17,7 +17,7 @@ import net.luckperms.api.LuckPermsProvider;
 import net.luckperms.api.node.Node;
 
 public final class ChatRuntimeTests implements ModInitializer {
- HeadlessClient realA,realB;long realChatBefore,realDmBefore;
+ HeadlessClient realA,realB;long realChatBefore,realDmBefore;BridgeProbe bridge;
  int ticks,checks,phase;boolean done;ChatMod mod;ServerPlayer a,b,c;Capture ca,cb,cc;
  static final class Capture extends FakeClientConnection {
   List<Packet<?>> packets=new ArrayList<>();Capture(){super(PacketFlow.SERVERBOUND);}
@@ -41,7 +41,7 @@ public final class ChatRuntimeTests implements ModInitializer {
    Files.writeString(Path.of("chat-test-result.txt"),"PASS: "+checks+" actual restart assertions");done=true;s.halt(false);return;
   }
   if(ticks==10){realA=new HeadlessClient(s,"WireAlice");realB=new HeadlessClient(s,"WireBob");}
-  if(ticks==20){check(mod.store!=null,"configuration initialized");check(!mod.store.config.formatting,"formatting disabled by default");
+  if(ticks==20){if(Boolean.getBoolean("ashpoint.bridgeTests"))bridge=new BridgeProbe(s);check(mod.store!=null,"configuration initialized");check(!mod.store.config.formatting,"formatting disabled by default");
    for(String n:List.of("clearchat","sudo","mute","unmute","mutelist","ignore","unignore","ignorelist","msg","tell","w","whisper","reply","r","msgtoggle","socialspy","sc","staffchat","slowchat","lockchat","ashpointchat"))check(s.getCommands().getDispatcher().getRoot().getChild(n)!=null,"registered /"+n);
    EntityPlayerMPFake.createFake("ChatAlice",s,new Vec3(0,100,0),0,0,s.overworld().dimension(),GameType.CREATIVE,false);EntityPlayerMPFake.createFake("ChatBob",s,new Vec3(2,100,0),0,0,s.overworld().dimension(),GameType.CREATIVE,false);EntityPlayerMPFake.createFake("ChatStaff",s,new Vec3(4,100,0),0,0,s.overworld().dimension(),GameType.CREATIVE,false);
   }
@@ -57,10 +57,15 @@ public final class ChatRuntimeTests implements ModInitializer {
    boolean denied=false;try{s.getCommands().getDispatcher().execute("sudo ChatBob command gamemode spectator",a.createCommandSourceStack());}catch(Exception expected){denied=true;}check(denied,"normal player's sudo command denied by dispatcher");
    mod.store.pref(c.getUUID()).spy=true;ca.clear();cb.clear();cc.clear();mod.dm(a,b,"spy test");check(cc.system()==1,"SocialSpy receives successful DM");
    mod.store.pref(b.getUUID()).messages=false;boolean rejected=false;try{mod.dm(a,b,"blocked");}catch(Exception expected){rejected=true;}check(rejected,"message toggle rejects normal DM");mod.store.pref(b.getUUID()).messages=true;
-   mod.store.pref(b.getUUID()).ignores.add(a.getUUID());cb.clear();ca.clear();command(s,"sudo ChatAlice chat hidden chat");check(cb.chat()==0&&ca.chat()>0,"ignore filters player chat per recipient");rejected=false;try{mod.dm(a,b,"ignored");}catch(Exception e){rejected=true;}check(rejected,"ignored private message rejected");mod.store.pref(b.getUUID()).ignores.clear();
-   ca.clear();cb.clear();command(s,"sudo ChatAlice chat real Carpet chat");check(ca.chat()>0&&cb.chat()>0,"Carpet sudo chat sends player-chat packets");
+   mod.store.pref(b.getUUID()).ignores.add(a.getUUID());cb.clear();ca.clear();command(s,"sudo ChatAlice chat hidden chat");check(cb.chat()==0&&ca.chat()==1,"ignore filters server-authored chat per recipient");if(bridge!=null)check(bridge.eachOnce("hidden chat"),"per-recipient ignore does not duplicate or suppress Bridge broadcast");rejected=false;try{mod.dm(a,b,"ignored");}catch(Exception e){rejected=true;}check(rejected,"ignored private message rejected");mod.store.pref(b.getUUID()).ignores.clear();
+   ca.clear();cb.clear();command(s,"sudo ChatAlice chat real Carpet chat");check(ca.chat()==1&&cb.chat()==1,"Carpet sudo chat delivers exactly once");
+   check(cb.packets.stream().noneMatch(p->p instanceof ClientboundPlayerChatPacket),"sudo never enters signed player packet validation");
+   check(cb.packets.stream().anyMatch(p->p instanceof ClientboundDisguisedChatPacket chat&&chat.message().getString().equals("real Carpet chat")&&chat.chatType().name().getString().equals("ChatAlice")),"vanilla CHAT type has exact fake-player sender and text");
+   if(bridge!=null)check(bridge.eachOnce("real Carpet chat")&&bridge.correct("real Carpet chat","ChatAlice",a.getUUID()),"production Bridge queues exact sender/text once per chat and console across two guilds");
+   check(mod.generatedChat(ChatType.bind(ChatType.CHAT,a))==null,"scoped sudo identity cleared after broadcast");
+   mod.store.config.formatting=true;ca.clear();cb.clear();command(s,"sudo ChatAlice chat formatted bot message");check(ca.chat()==0&&cb.chat()==0&&cb.system()==1,"custom formatting emits exactly one system delivery");if(bridge!=null)check(bridge.eachOnce("formatted bot message"),"custom formatting still forwards through Bridge once");mod.store.config.formatting=false;
    command(s,"sudo ChatAlice command gamemode spectator");check(a.gameMode.getGameModeForPlayer()==GameType.CREATIVE,"sudo does not grant target admin permissions");
-   command(s,"mute ChatAlice 1s test");check(mod.muted(a),"temporary mute applies");cb.clear();command(s,"sudo ChatAlice chat blocked by mute");check(cb.chat()==0,"mute blocks sudo chat");check(mod.dm(a,b,"muted DM")==0,"mute blocks private message");
+   command(s,"mute ChatAlice 1s test");check(mod.muted(a),"temporary mute applies");cb.clear();command(s,"sudo ChatAlice chat blocked by mute");check(cb.chat()==0,"mute blocks sudo chat");if(bridge!=null)check(bridge.count("blocked by mute")==0,"mute cancels production Bridge forwarding");check(mod.dm(a,b,"muted DM")==0,"mute blocks private message");
   }
   if(ticks==140&&phase==1){check(!mod.muted(a),"temporary mute expires");command(s,"mute ChatAlice persistent reason");check(mod.store.data.mutes.get(a.getUUID()).expires==0,"permanent mute");command(s,"unmute ChatAlice");check(!mod.muted(a),"unmute restores chat");
    command(s,"lockchat Testing");check(!mod.allowPublic(a,"locked"),"chat lock blocks normal player");grant(c,"lockchat.bypass",true);check(mod.allowPublic(c,"bypass"),"chat lock bypass");command(s,"lockchat off");check(!mod.store.data.locked,"chat unlock");
@@ -80,10 +85,12 @@ public final class ChatRuntimeTests implements ModInitializer {
    if(realA.failure!=null||realB.failure!=null)throw new AssertionError("Vanilla socket client failed",realA.failure!=null?realA.failure:realB.failure);
    if(!realA.playing||!realB.playing){if(ticks>1200)throw new AssertionError("Socket clients did not join");return;}
    check(s.getPlayerList().getPlayerByName("WireAlice")!=null&&s.getPlayerList().getPlayerByName("WireBob")!=null,"two vanilla protocol clients joined");
-   mod.store.config.antiSpam=false;realChatBefore=realB.chatCount();realDmBefore=realB.systemCount();realA.command("msg WireBob real private message");realA.chat("hello from a connected player");phase=3;ticks=180;
+   mod.store.config.antiSpam=false;mod.store.pref(s.getPlayerList().getPlayerByName("WireBob").getUUID()).ignores.clear();realChatBefore=realB.chatCount();realDmBefore=realB.systemCount();realA.command("msg WireBob real private message");realA.chat("hello from a connected player");phase=3;ticks=180;
   }
-  if(ticks==210&&phase==3){check(realB.systemCount()>realDmBefore,"real connected player DM received");check(realB.chatCount()>realChatBefore,"real connected player public chat received");realChatBefore=realB.chatCount();command(s,"sudo WireAlice chat server generated chat");phase=4;}
-  if(ticks==230&&phase==4){check(realB.chatCount()>realChatBefore,"sudo real connected player chat received");realA.close();realB.close();
+  if(ticks==210&&phase==3){check(realB.systemCount()>realDmBefore,"real connected player DM received");check(realB.chatCount()==realChatBefore+1,"normal connected-player public chat exactly once");if(bridge!=null)check(bridge.eachOnce("hello from a connected player")&&bridge.correct("hello from a connected player","WireAlice",s.getPlayerList().getPlayerByName("WireAlice").getUUID()),"normal chat reaches production Bridge exactly once with original formatting");realChatBefore=realB.chatCount();command(s,"sudo WireAlice chat server generated chat");command(s,"unmute ChatAlice");command(s,"sudo ChatAlice chat hello from bot");phase=4;}
+  if(ticks==230&&phase==4){check(realB.chatCount()==realChatBefore+2,"real-target and Carpet sudo each arrive exactly once at normal connected player");check(realB.received.stream().filter(p->p instanceof ClientboundDisguisedChatPacket chat&&chat.message().getString().equals("hello from bot")&&chat.chatType().name().getString().equals("ChatAlice")).count()==1,"Carpet sender name and text exactly once on real socket");if(bridge!=null)check(bridge.eachOnce("hello from bot")&&bridge.correct("hello from bot","ChatAlice",a.getUUID()),"hello from bot forwarded by production Bridge exactly once with correct fake identity");check(realB.received.stream().anyMatch(p->p instanceof ClientboundDisguisedChatPacket chat&&chat.message().getString().equals("server generated chat")&&chat.chatType().name().getString().equals("WireAlice")),"real target uses safe server-authored vanilla chat without signature");if(bridge!=null)check(bridge.eachOnce("server generated chat")&&bridge.correct("server generated chat","WireAlice",s.getPlayerList().getPlayerByName("WireAlice").getUUID()),"real-target sudo reaches Bridge exactly once");check(realA.failure==null&&realB.failure==null,"both protocol clients remain connected without validation disconnect");mod.store.pref(s.getPlayerList().getPlayerByName("WireBob").getUUID()).ignores.add(a.getUUID());realChatBefore=realB.chatCount();command(s,"sudo ChatAlice chat ignored by wire player");phase=5;
+  }
+  if(ticks==250&&phase==5){check(realB.chatCount()==realChatBefore,"ignore blocks sudo on normal connected recipient");if(bridge!=null)check(bridge.eachOnce("ignored by wire player"),"ignore retains exactly one Discord message per public channel");command(s,"mute ChatAlice restart-test");long before=bridge==null?0:bridge.deliveries.size();command(s,"sudo ChatAlice chat muted bot to bridge");if(bridge!=null)check(bridge.deliveries.size()==before,"muted Carpet message produces zero Discord submissions");mod.save();if(bridge!=null)bridge.close();realA.close();realB.close();
    Files.writeString(Path.of("chat-test-result.txt"),"PASS: "+checks+" assertions, three Carpet players and two vanilla protocol socket clients, dedicated server");done=true;s.halt(false);
   }
  }

@@ -1,8 +1,8 @@
-# AshPoint Chat 1.0.0
+# AshPoint Chat 1.0.1
 
 Server-only chat moderation and messaging for Minecraft **26.3**, Java **25**, Fabric Loader **0.19.5+**, Fabric API **0.161.0+26.3**. LuckPerms Fabric 5.5.x and Carpet are optional production integrations. Clients install nothing.
 
-Install `ashpoint-chat-1.0.0.jar` in `mods/`, with Fabric API. Restart once to install the mod. Afterwards use `/ashpointchat reload` to reload its JSON configuration.
+Install `ashpoint-chat-1.0.1.jar` in `mods/`, with Fabric API. Restart once to install the mod. Afterwards use `/ashpointchat reload` to reload its JSON configuration.
 
 ## Commands and permissions
 
@@ -52,7 +52,13 @@ AshPoint intentionally owns its listed chat commands, including vanilla `/msg`, 
 
 When optional `formatting` is enabled, public messages are delivered as formatted system messages using `publicFormat` and LuckPerms prefixes. This loses client signed-chat presentation/reporting for those deliveries and may conflict with another formatter; enable only if AshPoint is to handle your formatting. Prefix text is plain text, not MiniMessage markup.
 
-`/sudo ... chat` creates **unsigned player chat with the target UUID**, and broadcasts it through Minecraft/Fabric player chat processing. It works with Carpet players. It is not tellraw and does not forge signatures. A real connected player's cryptographic signature cannot be created server-side; clients may label these messages as untrusted. `/sudo ... command` runs the target's own command source, identity, position and normal permissions. It never adds OP. Recursion and control characters are rejected, and the target must be online. Logs identify the staff actor, target and command root; AshPoint does not log sudo message bodies or private-message text.
+`/sudo ... chat` uses vanilla **server-authored chat**, bound to the target’s normal `CHAT` display name, through `PlayerList.broadcastChatMessage(message, target, type)`. Fabric’s `ALLOW_CHAT_MESSAGE` and `CHAT_MESSAGE` events receive the actual target player once. Default delivery uses vanilla disguised chat, which has no cryptographic player-signature/session-chain fields. It does not forge a signature, feed a fake inbound client packet, disable secure-chat enforcement, use tellraw, or broadcast raw system text to every player. Mutes, slow chat, chat lock, anti-spam, staff mode, ignores, mentions and optional formatting still apply.
+
+Carpet 26.3+v260915 has no separate fake-player chat-signing method. `EntityPlayerMPFake` uses `NetHandlerPlayServerFake` and `FakeClientConnection`; shadow players can inherit a real player’s chat session. No Carpet/client private signing key exists for the server to use. Consequently sudo uses the server-authored path for both fake and real targets. For real players these messages are **not genuinely signed or attributable to their client in cryptographic chat reporting**; they are visibly attributed by vanilla’s chat-type name. Their genuine incoming chat pipeline is unchanged.
+
+AshPoint Bridge 1.6.1 already listens to `ServerMessageEvents.CHAT_MESSAGE`, checks `ChatType.CHAT`, then calls its existing `sendPlayerChat` with the supplied target’s UUID, profile name and original text. This fix follows exactly that hook, so Bridge retains its normal player-name/avatar webhook formatting and configured chat/console routing, including multiple guilds. **Keep the existing Bridge 1.6.1 JAR; no Bridge modification is required.**
+
+`/sudo ... command` runs the target’s own command source, identity, position and normal permissions. It never adds OP. Recursion and control characters are rejected, and the target must be online. Logs identify the staff actor, target and command root; AshPoint does not log sudo message bodies or private-message text.
 
 Vanilla clients have no server-side instruction for deleting arbitrary chat history. `/clearchat` sends configurable blank lines to push history out of view, followed by a notice. It cannot delete messages from logs or prevent scrolling back.
 
@@ -80,6 +86,6 @@ Near-duplicate detection normalizes punctuation/spacing/case and compares edit d
 
 ## Build
 
-Install Java 25, then run `./gradlew build`. The complete Gradle wrapper is included. Minecraft 26.3 ships readable names, so compilation uses the pinned official server libraries directly; no remapping is needed. Dependencies are downloaded and SHA-256 verified by `prepareGameClasspath`. Optional integrations are not bundled in the JAR. Output: `build/libs/ashpoint-chat-1.0.0.jar`.
+Install Java 25, then run `./gradlew build`. The complete Gradle wrapper is included. Minecraft 26.3 ships readable names, so compilation uses the pinned official server libraries directly; no remapping is needed. Dependencies are downloaded and SHA-256 verified by `prepareGameClasspath`. Optional integrations are not bundled in the JAR. Output: `build/libs/ashpoint-chat-1.0.1.jar`.
 
 Tests use a separate server-only harness JAR that must **never** be installed on production. See `TESTING.md` for actual test results and limitations.

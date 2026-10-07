@@ -27,12 +27,26 @@ public final class ChatMod implements ModInitializer {
  static final Logger LOG=LoggerFactory.getLogger("AshPoint Chat");
  final Map<UUID,UUID> replies=new HashMap<>();final Map<UUID,Spam> spam=new HashMap<>();
  int ticks,sudoDepth; final Set<String> conflicts=new TreeSet<>();
+ public record GeneratedChat(ServerPlayer sender,PlayerChatMessage message,ChatType.Bound type) {}
+ private final ThreadLocal<GeneratedChat> generatedChat=new ThreadLocal<>();
+ public GeneratedChat generatedChat(ChatType.Bound type){var current=generatedChat.get();return current!=null&&current.type()==type?current:null;}
+ /** Vanilla server-authored chat, through Fabric's player-chat broadcast hooks.
+  * Carpet has no client/private signing key; never invent a target's signed chain.
+  * The bound CHAT type carries the display name; the actual player argument carries
+  * identity to moderation and bridges. Scoped identity is only for recipient rules.
+  */
+ private void speak(ServerPlayer sender,String text){
+  var message=PlayerChatMessage.system(text);var type=ChatType.bind(ChatType.CHAT,sender);
+  var previous=generatedChat.get();generatedChat.set(new GeneratedChat(sender,message,type));
+  try{server.getPlayerList().broadcastChatMessage(message,sender,type);}
+  finally{if(previous==null)generatedChat.remove();else generatedChat.set(previous);}
+ }
  static final class Spam {long last,violationStart;int violations;String previous="";long previousAt;}
  @Override public void onInitialize(){
   INSTANCE=this;
   CommandRegistrationCallback.EVENT.register((d,r,e)->{
    for(var node:commands()){String name=node.getLiteral();if(d.getRoot().getChild(name)!=null){conflicts.add(name);LOG.warn("Existing /{} detected; AshPoint installs its own branch. Use /ashpointchat commands for guaranteed routing.",name);}removeRoot(d,name);d.register(node);}
-   var root=literal("ashpointchat").then(literal("reload").requires(s->has(s,"reload",false)).executes(c->reload(c.getSource()))).then(literal("info").requires(s->has(s,"info",true)).executes(c->{notice(c.getSource(),"AshPoint Chat 1.0.0 | mutes: "+store.data.mutes.size()+" | slow: "+store.data.slow+"s | locked: "+store.data.locked+" | detected aliases: "+conflicts);return 1;}));
+   var root=literal("ashpointchat").then(literal("reload").requires(s->has(s,"reload",false)).executes(c->reload(c.getSource()))).then(literal("info").requires(s->has(s,"info",true)).executes(c->{notice(c.getSource(),"AshPoint Chat 1.0.1 | mutes: "+store.data.mutes.size()+" | slow: "+store.data.slow+"s | locked: "+store.data.locked+" | detected aliases: "+conflicts);return 1;}));
    for(var node:commands())root.then(node);d.register(root);
   });
   ServerLifecycleEvents.SERVER_STARTED.register(s->installCommands(s));
@@ -90,7 +104,7 @@ public final class ChatMod implements ModInitializer {
   if(input.isBlank()||input.length()>2048||input.chars().anyMatch(ch->ch<32||ch==127))throw error("Invalid command/message text.");
   if(sudoDepth>=4)throw error("Sudo recursion limit.");
   audit(s,"sudo "+name(p)+" "+(chat?"chat":"command "+input.split(" ",2)[0]));
-  sudoDepth++;try{if(chat){if(input.length()>256)throw error("Chat message is too long.");server.getPlayerList().broadcastChatMessage(PlayerChatMessage.unsigned(p.getUUID(),input),p,ChatType.bind(ChatType.CHAT,p));return 1;}
+  sudoDepth++;try{if(chat){if(input.length()>256)throw error("Chat message is too long.");speak(p,input);return 1;}
    String command=input.startsWith("/")?input.substring(1):input;if(command.isBlank())throw error("Empty command.");server.getCommands().performPrefixedCommand(p.createCommandSourceStack(),command);return 1;
   }finally{sudoDepth--;}
  }

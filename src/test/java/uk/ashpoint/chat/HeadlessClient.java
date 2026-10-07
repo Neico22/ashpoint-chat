@@ -21,7 +21,7 @@ final class HeadlessClient implements AutoCloseable {
  }catch(Throwable e){if(!socket.isClosed()){failure=e;e.printStackTrace();}}});}
  @SuppressWarnings({"rawtypes","unchecked"}) synchronized void send(Packet<?> p)throws IOException{ByteBuf buf=Unpooled.buffer();try{((net.minecraft.network.codec.StreamCodec)outgoing.codec()).encode(buf,p);writeVarInt(socket.getOutputStream(),buf.readableBytes());byte[] bytes=new byte[buf.readableBytes()];buf.readBytes(bytes);socket.getOutputStream().write(bytes);socket.getOutputStream().flush();}finally{buf.release();}}
  void handle(Packet<?> p)throws IOException{
-  System.out.println("WIRE "+name+" received "+p.type());
+
   if(p instanceof ClientboundCustomQueryPacket query)send(new ServerboundCustomQueryAnswerPacket(query.transactionId(),null));
   if(p instanceof net.minecraft.network.protocol.cookie.ClientboundCookieRequestPacket cookie)send(new net.minecraft.network.protocol.cookie.ServerboundCookieResponsePacket(cookie.key(),null));
   if(p instanceof ClientboundPingPacket ping)send(new ServerboundPongPacket(ping.getId()));

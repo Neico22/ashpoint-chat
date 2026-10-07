@@ -1,7 +1,7 @@
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 plugins { id 'java'; id 'maven-publish' }
-version = '1.0.0'
+version = '1.0.1'
 group = 'uk.ashpoint'
 base { archivesName = 'ashpoint-chat' }
 // Minecraft 26.3 is distributed with readable names. No remapping step is needed.
